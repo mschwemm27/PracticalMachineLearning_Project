@@ -5,18 +5,131 @@ date: "June 19, 2015"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Overview 
+Here we build a classifier using random forest that allows one to determine whether or not a a particular barbell lift is performed correctly or not by using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data comes from http://groupware.les.inf.puc-rio.br/har and was originally published in
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+* Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+## Building the Classifier
+
+Here we build our random forest classifier.
+
+### Basic exploration
+
+First, we perform a very basic exploration of the data set.
+
+```{r,echo=TRUE,fig.width=9,fig.height=2.5}
+library(ggplot2)
+suppressMessages(library(gridExtra))
+training<-read.csv('pml-training.csv',na.strings=c("NA",""))
+testing<-read.csv('pml-testing.csv',na.strings=c("NA",""))
+
+dim(training)
+
+g1<-ggplot(training,aes(x=classe,y=roll_belt))+geom_point()+ylab('Roll Belt')
+g1<-g1+xlab('Activity Type')
+g2<-ggplot(training,aes(x=classe,y=yaw_belt))+geom_point()+ylab('Yaw Belt')
+g2<-g2+xlab('Activity Type')
+grid.arrange(g1,g2,ncol=2)
+
+```
+
+From the above, we see that the training data has 160 columns with 19,622 observations. A little more prodding shows that the activity labels are in the classe column and are factors with the levels A, B, C, D, and E.  The above plots show two of the features as a function of the activity labels.  We see that features have different ranges of values, and also that the data appears to cluster in different ways for different features as a function of the activity label.  We also find that the first 6 columns of the data set which contain features like user name and time stamp data are not relavant for our analysis, so we choose to exlude them. 
+
+## Clean and normalize the data
+Next, we remove the extraneous variables that we mentioned above. We also find that quite a few of the features have a lot of missing values, and we exclude them from our model.  Lastly, as many of the features have different ranges of values, we normalize the training data by subtracting out the mean and dividing by the standard deviation.  We also perform the exact same normalization on the testing data.
 
 ```{r}
-summary(cars)
+# Remove extraneous features
+training<-training[,7:160]
+testing<-testing[,7:160]
+nrow<-dim(training)[1]
+ncol<-dim(training)[2]
+# Convert everything to numeric (except classe labels)
+training[,-ncol]<-sapply(training[,-ncol],as.numeric)
+testing[,-ncol]<-sapply(testing[,-ncol],as.numeric)
+# Remove columns with all NA's
+notNA<-apply(!is.na(training),2,sum)>nrow-1
+training<-training[,notNA]
+testing<-testing[,notNA]
+# Normalize Training and Testing Data
+ncol<-dim(training)[2]
+for(kk in 1:(ncol-1)){
+  mu<-mean(training[,kk])
+  s<-sd(training[,kk])
+  training[,kk]<-(training[,kk]-mu)/s
+  testing[,kk]<-(testing[,kk]-mu)/s
+}
+ncol<-dim(training)[2]
 ```
 
-You can also embed plots, for example:
 
-```{r, echo=FALSE}
-plot(cars)
+### Fit the random forest model
+
+Here, we fit the random forest model on a subset of the training data in order to make the training go a little faster.  We also choose to use 100 tree for our random forest model, but we will explore the effect of the number of trees in the next section. Lastly, we also emply 5-fold cross validation in order to estimate our out of sample error. 
+
+```{r}
+suppressMessages(library(caret))
+suppressMessages(library(randomForest))
+# Set random seed for reproducibility
+set.seed(125)
+# Only use a subset of the training data (to make fitting go faster)
+InTrain<-createDataPartition(y=training$classe,p=0.35,list=FALSE)
+training1<-training[InTrain,]
+rm(training)
+# Fit the random forest model with 100 trees
+fit1<-train(classe~.,data=training1,method="rf"
+          ,ntree=100,trControl=trainControl(method="cv",number=5)
+          ,prox=TRUE,allowParallel=TRUE)
+print(fit1$finalModel)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+As one can see, we get a really low out of sample error rate of abput 1% !
+
+### Diagnosing the fit
+
+Below, we look at the importance of the different features of the model.  It looks like we may be able to get away with using fewer features as well as fewer trees and still retain a low error rate. 
+
+```{r,fig.height=8}
+imp<-varImp(fit1,scale=FALSE)
+plot(imp)
+```
+
+```{r}
+plot(seq(1,100),fit1$finalModel$err.rate[,1],xlab='Number of Trees',ylab='Out of Bag Error')
+```
+
+### Training a reduced model
+
+Here, we explore the error in a model where we use the top 12 most important features and 60 trees.
+
+```{r}
+# Find the 12 most important features
+nms<-rownames(imp$importance)
+ind<-order(imp$importance,by=imp$importance$Overall,decreasing=TRUE)
+imp12<-nms[ind[1:12]]
+ninds<-match(imp12,names(training1))
+# Create a new data frame with just those 12 features and the classe column
+ninds<-c(ninds,ncol)
+training1<-training1[,ninds]
+# Set random seed for reproducibility
+set.seed(125)
+# Train a random forest model with 12 features and 60 trees
+fit2<-train(classe~.,data=training1,method="rf"
+          ,ntree=60,trControl=trainControl(method="cv",number=5)
+          ,prox=TRUE,allowParallel=TRUE)
+print(fit2$finalModel)
+```
+
+Thus, using less features and less trees slightly improves our accuracy and also reduces the amount of time required for training.
+
+Lastly, we can compare the predictions of our two models on the test data to see if anything changes
+
+```{r}
+pred1<-predict(fit1,testing)
+pred2<-predict(fit2,testing[,ninds])
+table(pred1,pred2)
+```
+
+As one can see, both models predict the same classe labels for the test data.
