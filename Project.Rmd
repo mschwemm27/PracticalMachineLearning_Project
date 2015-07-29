@@ -6,10 +6,11 @@ output: html_document
 ---
 
 ## Overview 
-Here we build a classifier using random forest that allows one to determine whether or not a a particular barbell lift is performed correctly or not by using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data comes from http://groupware.les.inf.puc-rio.br/har and was originally published in
+Here we build a classifier using random forest that allows one to determine the type of barbell lift movement using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data comes from http://groupware.les.inf.puc-rio.br/har and was originally published in
 
 * Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
 
+We first go through builing a classifier that uses all of the features in the data set.  However, the training for this model takes quite long. As such, we then go through identifying the features that are most important for classification accuracy and then use those features to construct a reduced model that takes much less time to train and also retains the same level of accuracy.
 
 ## Building the Classifier
 
@@ -67,7 +68,7 @@ ncol<-dim(training)[2]
 
 ### Fit the random forest model
 
-Here, we fit the random forest model on a subset of the training data in order to make the training go a little faster.  We also choose to use 100 tree for our random forest model, but we will explore the effect of the number of trees in the next section. Lastly, we also emply 5-fold cross validation in order to estimate our out of sample error. 
+Here, we fit the random forest model on a subset of the training data in order to make the training go a little faster.  We also choose to use 100 trees for our random forest model, but we will explore the effect of the number of trees in the next section. Lastly, we also employ 5-fold cross validation in order to estimate our out of sample error. 
 
 ```{r}
 suppressMessages(library(caret))
@@ -75,7 +76,7 @@ suppressMessages(library(randomForest))
 # Set random seed for reproducibility
 set.seed(125)
 # Only use a subset of the training data (to make fitting go faster)
-InTrain<-createDataPartition(y=training$classe,p=0.35,list=FALSE)
+InTrain<-createDataPartition(y=training$classe,p=0.3,list=FALSE)
 training1<-training[InTrain,]
 rm(training)
 # Fit the random forest model with 100 trees
@@ -85,7 +86,7 @@ fit1<-train(classe~.,data=training1,method="rf"
 print(fit1$finalModel)
 ```
 
-As one can see, we get a really low out of sample error rate of abput 1% !
+As one can see, we get a really low out of sample error rate of about 1% !
 
 ### Diagnosing the fit
 
@@ -122,7 +123,7 @@ fit2<-train(classe~.,data=training1,method="rf"
 print(fit2$finalModel)
 ```
 
-Thus, using less features and less trees slightly improves our accuracy and also reduces the amount of time required for training.
+Thus, it appears that using less features and less trees slightly improves our accuracy and also reduces the amount of time required for training.
 
 Lastly, we can compare the predictions of our two models on the test data to see if anything changes
 
